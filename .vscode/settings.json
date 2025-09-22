@@ -19,7 +19,10 @@
   "files.associations": {
     "task.h": "c",
     "freertos.h": "c",
-    "semphr.h": "c"
+    "semphr.h": "c",
+    "stdio.h": "c",
+    "gpio.h": "c",
+    "esp_log.h": "c"
   },
   "idf.flashType": "UART"
 }

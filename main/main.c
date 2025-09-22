@@ -2,32 +2,24 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/semphr.h"
 #include "esp_log.h"
 
 #define ledR 33
 #define ledG 25
 #define ledB 26
-#define STACK_SIZE 1024 * 2
-#define R_delay 10000
-#define G_delay 2000
+#define button_isr 27
 
-SemaphoreHandle_t GlobalKey = 0;
-// xSemaphoreHandle GlobalKey = 0;
 static const char *tag = "Main";
+uint8_t count = 0;
 
 esp_err_t init_led(void);
-esp_err_t create_tasks(void);
-esp_err_t shared_resource(int led);
-
-void vTaskR(void *pvParameters);
-void vTaskG(void *pvParameters);
+esp_err_t init_irs(void);
+void isr_handler(void *args);
 
 void app_main(void)
 {
-    GlobalKey = xSemaphoreCreateBinary();
     init_led();
-    create_tasks();
+    init_irs();
 }
 
 esp_err_t init_led(void)
@@ -36,82 +28,57 @@ esp_err_t init_led(void)
     gpio_set_direction(ledR, GPIO_MODE_OUTPUT);
     gpio_reset_pin(ledG);
     gpio_set_direction(ledG, GPIO_MODE_OUTPUT);
+    gpio_reset_pin(ledB);
+    gpio_set_direction(ledB, GPIO_MODE_OUTPUT);
+
+    ESP_LOGI(tag, "Init led completed");
     return ESP_OK;
 }
 
-esp_err_t create_tasks(void)
-{
-    static uint8_t ucParameterToPass;
-    TaskHandle_t xHandle = NULL;
+esp_err_t init_irs(void)
+{   
+    gpio_config_t pGPIOConfig;
+    pGPIOConfig.pin_bit_mask = (1ULL << button_isr);
+    pGPIOConfig.mode = GPIO_MODE_INPUT;
+    pGPIOConfig.pull_up_en = GPIO_PULLUP_DISABLE;
+    pGPIOConfig.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    pGPIOConfig.intr_type = GPIO_INTR_NEGEDGE;
 
-    // xTaskCreate()
-    xTaskCreatePinnedToCore(vTaskR,
-                            "vTaskR",
-                            STACK_SIZE,
-                            &ucParameterToPass,
-                            1,
-                            &xHandle,
-                            0);
+    
+    gpio_config(&pGPIOConfig);
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(button_isr, isr_handler, NULL);
 
-    xTaskCreatePinnedToCore(vTaskG,
-                            "vTaskG",
-                            STACK_SIZE,
-                            &ucParameterToPass,
-                            1,
-                            &xHandle,
-                            1);
+    ESP_LOGI(tag, "Init isr completed");
     return ESP_OK;
 }
 
-esp_err_t shared_resource(int led)
+void isr_handler(void *args)
 {
-    for (size_t i = 0; i < 8; i++)
+    count ++;
+    if (count > 2)
     {
-        vTaskDelay(pdMS_TO_TICKS(400));
-        gpio_set_level(led, 1);
-        vTaskDelay(pdMS_TO_TICKS(400));
-        gpio_set_level(led, 0);
+        count = 0;
     }
-    return ESP_OK;
-}
-
-// Task to be created.
-void vTaskR(void *pvParameters)
-{
-    while (1)
+    switch (count)
     {
-        for (size_t i = 0; i < 8; i++)
-        {
-            vTaskDelay(pdMS_TO_TICKS(400));
-            gpio_set_level(ledR, 1);
-            vTaskDelay(pdMS_TO_TICKS(400));
-            gpio_set_level(ledR, 0);
-        }
-        ESP_LOGE(tag, "Task R is giving the key");
-        xSemaphoreGive(GlobalKey);
-
-        vTaskDelay(pdMS_TO_TICKS(R_delay));
-    }
-}
-
-// Task to be created.
-void vTaskG(void *pvParameters)
-{
-    while (1)
-    {
-        if (xSemaphoreTake(GlobalKey, portMAX_DELAY))
-        {
-            ESP_LOGI(tag, "Task G is working");
-            for (size_t i = 0; i < 8; i++)
-            {
-                vTaskDelay(pdMS_TO_TICKS(400));
-                gpio_set_level(ledG, 1);
-                vTaskDelay(pdMS_TO_TICKS(400));
-                gpio_set_level(ledG, 0);
-            }
-            ESP_LOGW(tag, "Task G is sleeping");
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(100));
+    case 0:
+        gpio_set_level(ledR, 1);
+        gpio_set_level(ledG, 0);
+        gpio_set_level(ledB, 0);
+        break;
+    case 1:
+        gpio_set_level(ledR, 0);
+        gpio_set_level(ledG, 1);
+        gpio_set_level(ledB, 0);
+        break;
+    case 2:
+        gpio_set_level(ledR, 0);
+        gpio_set_level(ledG, 0);
+        gpio_set_level(ledB, 1);
+        break;
+    
+    default:
+        break;
     }
 }
